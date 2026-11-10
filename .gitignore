@@ -1,0 +1,21 @@
+## .NET
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+.idea/
+
+## Local environment
+.env
+.local/
+
+## Test results
+TestResults/
+*.trx
+coverage*
+
+## OS
+.DS_Store
+Thumbs.db

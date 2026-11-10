@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Smartgn.Telemetry/Smartgn.Telemetry.csproj" />
+  </Folder>
+</Solution>
