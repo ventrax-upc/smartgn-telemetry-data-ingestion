@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+option csharp_namespace = "Smartgn.Telemetry.Grpc";
+
+package smartgn.telemetry.v1;
+
+// Private read contract exposed by Telemetry & Data Ingestion for
+// Monitoring & Analytics. Deployment target uses HTTP/2 over TLS inside the
+// service network; the local composition exposes it on the gRPC port.
+service TelemetryQueryService {
+  // Readings between two instants for the given devices, newest first.
+  rpc GetReadingsBatch (ReadingsBatchRequest) returns (ReadingsBatchResponse);
+  // Latest stored reading per requested device.
+  rpc GetLatestReadings (LatestReadingsRequest) returns (LatestReadingsResponse);
+}
+
+message ReadingsBatchRequest {
+  repeated string device_ids = 1;
+  int64 from_unix_ms = 2;
+  int64 to_unix_ms = 3;
+  int32 limit = 4;
+}
+
+message LatestReadingsRequest {
+  repeated string device_ids = 1;
+  int32 limit = 2;
+}
+
+message Reading {
+  string device_id = 1;
+  string event_id = 2;
+  int64 sequence_number = 3;
+  int64 measured_at_unix_ms = 4;
+  int64 received_at_unix_ms = 5;
+  map<string, double> metrics = 6;
+  // current | delayed — delayed means measuredAt is older than 30 seconds.
+  string freshness = 7;
+  int64 association_version = 8;
+}
+
+message ReadingsBatchResponse {
+  repeated Reading readings = 1;
+}
+
+message LatestReadingsResponse {
+  repeated Reading readings = 1;
+}
