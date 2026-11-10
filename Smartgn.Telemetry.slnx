@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Smartgn.Telemetry/Smartgn.Telemetry.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Smartgn.Telemetry.Tests/Smartgn.Telemetry.Tests.csproj" />
+  </Folder>
 </Solution>
