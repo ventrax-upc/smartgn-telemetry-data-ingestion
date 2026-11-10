@@ -1,0 +1,46 @@
+name: smartgn-telemetry
+services:
+  influxdb:
+    image: influxdb:2.7
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASSWORD:?Set INFLUX_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: smartgn
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:?Set INFLUX_TOKEN}
+    ports: ["127.0.0.1:18086:8086"]
+    volumes: [influx-data:/var/lib/influxdb2]
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports: ["127.0.0.1:1885:1883"]
+    volumes: [./tools/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1883"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  telemetry:
+    build: .
+    environment:
+      PORT: "8084"
+      GRPC_PORT: "9084"
+      MQTT_URL: tcp://mqtt:1883
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ORG: smartgn
+      INFLUX_BUCKET: telemetry
+      INSTALLATION_BASE_URL: ${INSTALLATION_BASE_URL:-http://host.docker.internal:8081}
+      ALERTING_EVENTS_SINK_URL: ${ALERTING_EVENTS_SINK_URL:-http://host.docker.internal:8085/internal/v1/events}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+    ports: ["127.0.0.1:8084:8084", "127.0.0.1:9084:9084"]
+    depends_on:
+      influxdb: {condition: service_healthy}
+      mqtt: {condition: service_healthy}
+volumes:
+  influx-data:
