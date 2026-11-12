@@ -15,22 +15,46 @@ public sealed class InstallationAuthorizationClient(HttpClient httpClient) : IDe
 {
     public async Task<DeviceAuthorizationResult> AuthorizeAsync(
         string deviceId,
+        long associationVersion,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var response = await httpClient.GetAsync(
-                $"/internal/v1/devices/{Uri.EscapeDataString(deviceId)}/authorization",
+                $"/internal/v1/devices/{Uri.EscapeDataString(deviceId)}/authorization?associationVersion={associationVersion}",
                 cancellationToken);
 
-            return response.StatusCode switch
+            if (response.StatusCode is HttpStatusCode.Forbidden)
             {
-                HttpStatusCode.OK => new DeviceAuthorizationResult(true, null),
-                HttpStatusCode.Forbidden => new DeviceAuthorizationResult(false, "device_forbidden"),
-                HttpStatusCode.NotFound => new DeviceAuthorizationResult(false, "device_unknown"),
-                HttpStatusCode.Unauthorized => new DeviceAuthorizationResult(false, "service_token_rejected"),
-                _ => new DeviceAuthorizationResult(false, "installation_unavailable"),
-            };
+                return new DeviceAuthorizationResult(false, "device_forbidden");
+            }
+
+            if (response.StatusCode is HttpStatusCode.NotFound)
+            {
+                return new DeviceAuthorizationResult(false, "device_unknown");
+            }
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized)
+            {
+                return new DeviceAuthorizationResult(false, "service_token_rejected");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return new DeviceAuthorizationResult(false, "installation_unavailable");
+            }
+
+            var authorization = await response.Content.ReadFromJsonAsync<AuthorizationResponse>(cancellationToken);
+            if (authorization is null ||
+                !string.Equals(authorization.DeviceId, deviceId, StringComparison.Ordinal) ||
+                authorization.AssociationVersion != associationVersion)
+            {
+                return new DeviceAuthorizationResult(false, "installation_contract_invalid");
+            }
+
+            return authorization.Authorized
+                ? new DeviceAuthorizationResult(true, null)
+                : new DeviceAuthorizationResult(false, "device_forbidden");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -41,4 +65,6 @@ public sealed class InstallationAuthorizationClient(HttpClient httpClient) : IDe
             return new DeviceAuthorizationResult(false, "installation_unavailable");
         }
     }
+
+    private sealed record AuthorizationResponse(string DeviceId, long AssociationVersion, bool Authorized);
 }

@@ -12,7 +12,9 @@
 ./scripts/start-local.ps1          # .env from .env.example, compose up, wait for /ready
 ./scripts/start-local.ps1 -Rebuild # rebuild the service image
 ./scripts/test.ps1                 # restore, build (Release), xUnit suite
-./scripts/smoke-local.ps1          # /health, /ready, gRPC port, MQTT publish
+./scripts/smoke-local.ps1          # health, readiness, Swagger, gRPC and MQTT publish
+./scripts/export-openapi.ps1       # refresh docs/openapi.json from /v3/api-docs
+./scripts/verify-openapi.ps1       # verify against tools/service.json
 docker compose logs -f telemetry
 docker compose down                 # keeps the InfluxDB volume
 ```
@@ -23,18 +25,24 @@ Never delete the `influx-data` volume to bypass a problem; the bucket is initial
 
 | Service | Host port | Container port |
 | --- | --- | --- |
-| Telemetry HTTP | 8084 | 8084 |
+| Telemetry HTTP | 8085 | 8085 |
+| Swagger UI | 8085 | /swagger-ui.html |
+| OpenAPI document | 8085 | /v3/api-docs |
 | Telemetry gRPC | 9084 | 9084 |
 | InfluxDB | 18086 | 8086 |
 | Mosquitto | 1885 | 1883 |
 
-Host ports are offset from the shared composition (8081 Installation, 8083 events sink, 8086 InfluxDB default) so this stack can run alone or beside the sibling services.
+The table shows the standalone Compose ports. The integrated Compose publishes Telemetry HTTP on host port 8085 and keeps gRPC, MQTT and database ports private. Containers connect using service DNS. Standalone Alerting publishes host port 8086.
 
 ## Running against sibling services
 
-`INSTALLATION_BASE_URL` and `ALERTING_EVENTS_SINK_URL` default to `http://host.docker.internal:8081` and `http://host.docker.internal:8085/internal/v1/events`. When Installation is not running, every reading is rejected as `installation_unavailable` — this is intended: the pipeline stays alive and the smoke test still passes.
+`INSTALLATION_BASE_URL` and `ALERTING_EVENTS_SINK_URL` point to sibling services. In the integrated Compose they resolve to Installation and Alerting service DNS names. Standalone defaults use host ports `8081` and `8086`. When Installation or its required `associationVersion` authorization contract is unavailable, ingestion rejects the reading rather than recording an unauthorized device.
+
+In the integrated Compose, `SMARTGN_CONFIG_URL` loads `smartgn-telemetry/local` from Config Server during startup, and `SMARTGN_ADMIN_URL` enables authenticated registration of `/ready` in Admin. `SMARTGN_CONFIG_PROFILE` selects another profile. Local environment variables override remotely loaded values. These settings are omitted in standalone runs.
 
 ## Publish a reading by hand
+
+Use a device and association version that Installation authorizes. The identifiers below illustrate the payload shape.
 
 ```powershell
 $payload = @{

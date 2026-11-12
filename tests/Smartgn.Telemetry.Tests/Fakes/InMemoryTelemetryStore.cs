@@ -14,6 +14,9 @@ public sealed class InMemoryTelemetryStore : ITelemetryStore
     /// <summary>When true the next SaveAsync throws, simulating an outage.</summary>
     public bool FailNextSave { get; set; }
 
+    /// <summary>When true the next read query throws, simulating an outage.</summary>
+    public bool FailNextRead { get; set; }
+
     public bool IsHealthy { get; set; } = true;
 
     public IReadOnlyCollection<TelemetryReading> All => _readings.Values;
@@ -40,6 +43,7 @@ public sealed class InMemoryTelemetryStore : ITelemetryStore
         int limit,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfNextReadFails();
         var result = _readings.Values
             .Where(reading => deviceIds.Contains(reading.DeviceId))
             .Where(reading => reading.MeasuredAt >= from && reading.MeasuredAt <= to)
@@ -55,6 +59,7 @@ public sealed class InMemoryTelemetryStore : ITelemetryStore
         int limit,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfNextReadFails();
         var result = deviceIds
             .Select(device => _readings.Values
                 .Where(reading => reading.DeviceId == device)
@@ -70,4 +75,15 @@ public sealed class InMemoryTelemetryStore : ITelemetryStore
 
     public Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(IsHealthy);
+
+    private void ThrowIfNextReadFails()
+    {
+        if (!FailNextRead)
+        {
+            return;
+        }
+
+        FailNextRead = false;
+        throw new InvalidOperationException("store_unavailable");
+    }
 }

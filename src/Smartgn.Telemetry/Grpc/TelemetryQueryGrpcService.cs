@@ -17,8 +17,13 @@ public sealed class TelemetryQueryGrpcService(
         ReadingsBatchRequest request,
         ServerCallContext context)
     {
-        var deviceIds = request.DeviceIds;
-        if (deviceIds.Count == 0)
+        var usesSupplyPoints = request.SupplyPointIds.Count > 0;
+        var identifiers = usesSupplyPoints ? request.SupplyPointIds : request.DeviceIds;
+        if (usesSupplyPoints && !Guid.TryParse(request.AccountId, out _))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "account_id_required"));
+        }
+        if (identifiers.Count == 0)
         {
             return new ReadingsBatchResponse();
         }
@@ -28,12 +33,12 @@ public sealed class TelemetryQueryGrpcService(
             throw new RpcException(new Status(StatusCode.InvalidArgument, "invalid_time_range"));
         }
 
-        var readings = await query.GetBatchAsync(
-            deviceIds,
-            DateTimeOffset.FromUnixTimeMilliseconds(request.FromUnixMs),
-            DateTimeOffset.FromUnixTimeMilliseconds(request.ToUnixMs),
-            request.Limit,
-            context.CancellationToken);
+        var from = DateTimeOffset.FromUnixTimeMilliseconds(request.FromUnixMs);
+        var to = DateTimeOffset.FromUnixTimeMilliseconds(request.ToUnixMs);
+        var readings = usesSupplyPoints
+            ? await query.GetBatchBySupplyPointsAsync(
+                identifiers, request.AccountId, from, to, request.Limit, context.CancellationToken)
+            : await query.GetBatchAsync(identifiers, from, to, request.Limit, context.CancellationToken);
 
         logger.LogDebug("GetReadingsBatch returned {Count} readings", readings.Count);
 
@@ -46,15 +51,21 @@ public sealed class TelemetryQueryGrpcService(
         LatestReadingsRequest request,
         ServerCallContext context)
     {
-        if (request.DeviceIds.Count == 0)
+        var usesSupplyPoints = request.SupplyPointIds.Count > 0;
+        var identifiers = usesSupplyPoints ? request.SupplyPointIds : request.DeviceIds;
+        if (usesSupplyPoints && !Guid.TryParse(request.AccountId, out _))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "account_id_required"));
+        }
+        if (identifiers.Count == 0)
         {
             return new LatestReadingsResponse();
         }
 
-        var readings = await query.GetLatestAsync(
-            request.DeviceIds,
-            request.Limit,
-            context.CancellationToken);
+        var readings = usesSupplyPoints
+            ? await query.GetLatestBySupplyPointsAsync(
+                identifiers, request.AccountId, request.Limit, context.CancellationToken)
+            : await query.GetLatestAsync(identifiers, request.Limit, context.CancellationToken);
 
         logger.LogDebug("GetLatestReadings returned {Count} readings", readings.Count);
 

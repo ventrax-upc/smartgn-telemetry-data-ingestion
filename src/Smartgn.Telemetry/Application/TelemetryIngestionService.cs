@@ -54,7 +54,10 @@ public sealed class TelemetryIngestionService(
         }
 
         // An unknown or unprovisioned device never reaches the repository.
-        var authorizationResult = await authorization.AuthorizeAsync(telemetryEvent.DeviceId, cancellationToken);
+        var authorizationResult = await authorization.AuthorizeAsync(
+            telemetryEvent.DeviceId,
+            telemetryEvent.AssociationVersion,
+            cancellationToken);
         if (!authorizationResult.IsAuthorized)
         {
             return new(IngestionOutcome.Unauthorized, null, authorizationResult.Reason ?? "unauthorized");

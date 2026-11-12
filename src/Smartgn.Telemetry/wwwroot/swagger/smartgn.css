@@ -1,0 +1,82 @@
+:root {
+  color-scheme: dark;
+  --sg-page: #0b1220;
+  --sg-panel: #142033;
+  --sg-raised: #1b2a40;
+  --sg-border: #35465f;
+  --sg-text: #e6edf7;
+  --sg-muted: #acbdd1;
+  --sg-accent: #77dfc4;
+}
+html, body { background: var(--sg-page); color: var(--sg-text); }
+body { margin: 0; }
+.swagger-ui { font-family: Inter, system-ui, sans-serif; }
+.swagger-ui .topbar { display: none; }
+.swagger-ui .wrapper { max-width: 1180px; }
+.swagger-ui .info { margin: 48px 0 30px; }
+.swagger-ui .info .title { font-size: clamp(1.8rem, 4vw, 2.7rem); letter-spacing: -.035em; }
+.swagger-ui .info .title small { background: var(--sg-raised); color: var(--sg-accent); vertical-align: middle; }
+.swagger-ui .info .title small pre { color: var(--sg-accent); }
+.swagger-ui .info .title small.version-stamp { background: var(--sg-raised); }
+.swagger-ui .info .title, .swagger-ui .info p, .swagger-ui .info li,
+.swagger-ui .opblock-tag, .swagger-ui .opblock-tag small, .swagger-ui .opblock-summary-path,
+.swagger-ui .opblock-summary-description, .swagger-ui .opblock-description-wrapper,
+.swagger-ui .opblock-description-wrapper p, .swagger-ui .opblock-external-docs-wrapper,
+.swagger-ui .opblock-section-header h4, .swagger-ui .opblock-section-header label,
+.swagger-ui .parameter__name, .swagger-ui .parameter__type, .swagger-ui .parameter__in,
+.swagger-ui .parameters-col_description, .swagger-ui .response-col_status,
+.swagger-ui .response-col_description, .swagger-ui .responses-header td, .swagger-ui table thead tr th,
+.swagger-ui .model, .swagger-ui .model-title, .swagger-ui .model-box-control,
+.swagger-ui .model-toggle, .swagger-ui .prop-type, .swagger-ui .prop-format,
+.swagger-ui .tab li, .swagger-ui .scheme-container label,
+.swagger-ui .dialog-ux .modal-ux-content h4, .swagger-ui .dialog-ux .modal-ux-content p,
+.swagger-ui .dialog-ux .modal-ux-content label, .swagger-ui .dialog-ux .modal-ux-header h3 {
+  color: var(--sg-text);
+}
+.swagger-ui a, .swagger-ui .info a, .swagger-ui .opblock-summary-path a { color: var(--sg-accent); }
+.swagger-ui .opblock-tag { border-bottom: 1px solid var(--sg-border); }
+.swagger-ui .opblock-tag small { color: var(--sg-muted); }
+.swagger-ui .opblock .opblock-summary-description, .swagger-ui .servers-title {
+  color: var(--sg-muted);
+}
+.swagger-ui .scheme-container, .swagger-ui .opblock .opblock-section-header,
+.swagger-ui .model-box, .swagger-ui .dialog-ux .modal-ux,
+.swagger-ui .model-example, .swagger-ui .examples-select, .swagger-ui .examples-select-value-retainer {
+  background: var(--sg-panel);
+}
+.swagger-ui .scheme-container { box-shadow: none; border-block: 1px solid var(--sg-border); }
+.swagger-ui .opblock { background: var(--sg-panel); border-width: 1px; box-shadow: none; }
+.swagger-ui .opblock.is-open .opblock-section-header { background: var(--sg-raised); }
+.swagger-ui .opblock .opblock-summary-method { color: #07111f; font-weight: 750; }
+.swagger-ui .opblock.opblock-get .opblock-summary-method { background: #76b8ff; }
+.swagger-ui .opblock.opblock-post .opblock-summary-method { background: #77dfc4; }
+.swagger-ui .opblock.opblock-put .opblock-summary-method { background: #ffca7a; }
+.swagger-ui .opblock.opblock-patch .opblock-summary-method { background: #bcb3ff; }
+.swagger-ui .opblock.opblock-delete .opblock-summary-method { background: #ff9a9a; }
+.swagger-ui .opblock .opblock-summary-path, .swagger-ui .parameter__name, .swagger-ui .model-title {
+  font-family: ui-monospace, Consolas, monospace;
+}
+.swagger-ui section.models, .swagger-ui section.models.is-open h4, .swagger-ui .model-container,
+.swagger-ui .dialog-ux .modal-ux-header, .swagger-ui table thead tr th {
+  border-color: var(--sg-border);
+}
+.swagger-ui section.models h4, .swagger-ui .models-control { color: var(--sg-text); }
+.swagger-ui section.models .model-container { background: var(--sg-panel); }
+.swagger-ui input, .swagger-ui textarea, .swagger-ui select {
+  background: var(--sg-page); border-color: var(--sg-border); color: var(--sg-text);
+}
+.swagger-ui .btn { border-color: var(--sg-border); color: var(--sg-text); }
+.swagger-ui .btn.authorize, .swagger-ui .btn.execute { background: var(--sg-accent); border-color: var(--sg-accent); color: #0b1220; }
+.swagger-ui .btn.authorize svg { fill: #0b1220; }
+.swagger-ui .opblock-control-arrow svg, .swagger-ui .expand-operation svg,
+.swagger-ui .models-control svg, .swagger-ui .dialog-ux .close-modal svg { fill: var(--sg-text); }
+.swagger-ui .opblock-tag .expand-operation svg, .swagger-ui .opblock-summary svg.arrow,
+.swagger-ui .authorization__btn svg { fill: var(--sg-muted); }
+.swagger-ui .highlight-code, .swagger-ui .microlight, .swagger-ui .curl-command {
+  background: var(--sg-page) !important; color: var(--sg-text);
+}
+.swagger-ui .renderedMarkdown code { background: var(--sg-raised); color: var(--sg-accent); }
+.swagger-ui button:focus-visible, .swagger-ui a:focus-visible,
+.swagger-ui input:focus-visible, .swagger-ui select:focus-visible, .swagger-ui textarea:focus-visible {
+  outline: 2px solid var(--sg-accent); outline-offset: 2px;
+}

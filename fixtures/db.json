@@ -1,0 +1,49 @@
+{
+  "service": "smartgn-telemetry",
+  "version": 1,
+  "records": [
+    {
+      "alias": "demo-meter-primary",
+      "deviceId": "ae29a705-0a10-4d1f-b2a1-6ced6f4cc002",
+      "accountAlias": "demo-account-pro",
+      "propertyAlias": "demo-property-primary",
+      "supplyPointAlias": "demo-supply-point-primary",
+      "associationVersion": 1,
+      "readings": [
+        {
+          "eventId": "demo-primary-current-001",
+          "sequenceNumber": 1,
+          "measuredAtOffsetMinutes": -1,
+          "metrics": {
+            "totalVolumeM3": 18.7,
+            "pressureKpa": 0.22,
+            "gasDetected": 0,
+            "valveOpen": 0
+          }
+        },
+        {
+          "eventId": "demo-primary-history-001",
+          "sequenceNumber": 2,
+          "measuredAtOffsetDays": -2,
+          "metrics": {
+            "totalVolumeM3": 16.2,
+            "pressureKpa": 0.4,
+            "gasDetected": 0,
+            "valveOpen": 0
+          }
+        }
+      ],
+      "notificationProbe": {
+        "eventId": "demo-primary-alert-notification-001",
+        "sequenceNumber": 4,
+        "metrics": {
+          "totalVolumeM3": 18.8,
+          "pressureKpa": 0.22,
+          "gasDetected": 0,
+          "valveOpen": 0
+        }
+      }
+    }
+  ]
+}
+

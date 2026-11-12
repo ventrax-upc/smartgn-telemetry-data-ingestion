@@ -17,11 +17,15 @@ public sealed class StubDeviceAuthorizationClient : IDeviceAuthorizationClient
 
     public int Calls { get; private set; }
 
+    public long LastAssociationVersion { get; private set; }
+
     public Task<DeviceAuthorizationResult> AuthorizeAsync(
         string deviceId,
+        long associationVersion,
         CancellationToken cancellationToken = default)
     {
         Calls++;
+        LastAssociationVersion = associationVersion;
         var authorized = _authorized.Contains(deviceId);
         return Task.FromResult(new DeviceAuthorizationResult(authorized, authorized ? null : RejectReason));
     }

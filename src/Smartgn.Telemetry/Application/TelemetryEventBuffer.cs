@@ -35,6 +35,18 @@ public sealed class TelemetryEventBuffer
         }
     }
 
+    /// <summary>Counts pending announcements for one device association.</summary>
+    public int CountPending(string deviceId, long associationVersion, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            RemoveExpiredLocked(now);
+            return _items.Count(item =>
+                item.Event.DeviceId == deviceId &&
+                item.Event.AssociationVersion == associationVersion);
+        }
+    }
+
     /// <summary>Appends an event, evicting expired and overflow items first.</summary>
     public void Enqueue(TelemetryProcessedEvent telemetryEvent, DateTimeOffset now)
     {

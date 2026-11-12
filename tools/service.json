@@ -1,0 +1,39 @@
+{
+  "service": "smartgn-telemetry-data-ingestion",
+  "title": "SmartGN - Telemetry & Data Ingestion",
+  "version": "v1",
+  "default_openapi_url": "http://127.0.0.1:8085/v3/api-docs",
+  "tags": {
+    "Internal telemetry": "Private service-to-service contracts for device lifecycle and operational status."
+  },
+  "security_schemes": ["bearerAuth", "serviceAuth"],
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/internal/v1/device-associations",
+      "tag": "Internal telemetry",
+      "summary": "Synchronize a versioned device association",
+      "description": "Confirms the device, account, property, supply point and association version provided by Installation. Requires the private service credential when configured.",
+      "success": 200,
+      "security": "serviceAuth"
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/devices/status-query",
+      "tag": "Internal telemetry",
+      "summary": "Query device operational status",
+      "description": "Returns last-contact state for the requested device identifiers within the account and purpose scope. Requires the private service credential when configured.",
+      "success": 200,
+      "security": "serviceAuth"
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/devices/{deviceId}/buffer-drain",
+      "tag": "Internal telemetry",
+      "summary": "Confirm an association buffer is drained",
+      "description": "Reports whether readings remain outstanding for the specified device association version. Requires the private service credential when configured.",
+      "success": 200,
+      "security": "serviceAuth"
+    }
+  ]
+}

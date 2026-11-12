@@ -80,6 +80,43 @@ public class TelemetryQueryServiceTests
         Assert.Equal("other", readings.Single(r => r.DeviceId == "meter-002").EventId);
     }
 
+    [Fact]
+    public async Task GetBatchBySupplyPoint_UsesAssociationVersionAndTimeForReplacedDevices()
+    {
+        var store = new InMemoryTelemetryStore();
+        var ledger = new InMemoryDeviceAssociationStore();
+        var pointId = "point-001";
+        var oldFrom = Now.AddDays(-2);
+        var replacedAt = Now.AddDays(-1);
+        await ledger.SaveAsync(new DeviceAssociation(
+            "device-old", 1, "account-001", "property-001", pointId, oldFrom, replacedAt));
+        await ledger.SaveAsync(new DeviceAssociation(
+            "device-new", 2, "account-002", "property-002", pointId, replacedAt, null));
+        await store.SaveAsync(Reading("device-old", "before-replacement", replacedAt.AddMinutes(-1)) with
+        {
+            AssociationVersion = 1,
+        });
+        await store.SaveAsync(Reading("device-old", "after-replacement", replacedAt.AddMinutes(1)) with
+        {
+            AssociationVersion = 1,
+        });
+        await store.SaveAsync(Reading("device-new", "current-device", Now) with
+        {
+            AssociationVersion = 2,
+        });
+        var service = new TelemetryQueryService(store, ledger);
+
+        var readings = await service.GetBatchBySupplyPointsAsync(
+            [pointId], "account-002", Now.AddDays(-3), Now.AddMinutes(1), limit: 20);
+
+        Assert.Equal(new[] { "current-device" }, readings.Select(reading => reading.EventId));
+        Assert.All(readings, reading => Assert.Equal(pointId, reading.SupplyPointId));
+
+        var priorOwnerReadings = await service.GetBatchBySupplyPointsAsync(
+            [pointId], "account-001", Now.AddDays(-3), Now.AddMinutes(1), limit: 20);
+        Assert.Equal(new[] { "before-replacement" }, priorOwnerReadings.Select(reading => reading.EventId));
+    }
+
     private static TelemetryReading Reading(string deviceId, string eventId, DateTimeOffset measuredAt) =>
         new(
             deviceId,

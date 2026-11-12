@@ -18,6 +18,7 @@ public static class ReadingMapper
             ReceivedAtUnixMs = reading.ReceivedAt.ToUnixTimeMilliseconds(),
             Freshness = reading.Freshness == TelemetryFreshness.Delayed ? "delayed" : "current",
             AssociationVersion = reading.AssociationVersion,
+            SupplyPointId = reading.SupplyPointId ?? string.Empty,
         };
 
         foreach (var (name, value) in reading.Metrics)

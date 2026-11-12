@@ -98,6 +98,43 @@ public sealed class InfluxDeviceAssociationStore : IDeviceAssociationStore, IDis
         }
     }
 
+    public async Task<IReadOnlyList<DeviceAssociation>> FindByPointIdsAsync(
+        IReadOnlyCollection<string> pointIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = pointIds
+            .Where(id => TelemetryRules.IsValidIdentifier(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (ids.Length == 0)
+        {
+            return [];
+        }
+
+        var pointFilter = string.Join(" or ", ids.Select(id =>
+            $"r[\"pointId\"] == \"{Escape(id)}\""));
+        var flux = $"""
+            from(bucket: "{Escape(_settings.Bucket)}")
+              |> range(start: 0)
+              |> filter(fn: (r) => r["_measurement"] == "{Escape(_settings.AssociationMeasurement)}")
+              |> pivot(rowKey: ["_time", "deviceId", "version"], columnKey: ["_field"], valueColumn: "_value")
+              |> filter(fn: (r) => exists r.pointId and ({pointFilter}))
+            """;
+
+        var tables = await _client.GetQueryApi().QueryAsync(flux, _settings.Org, cancellationToken);
+        return tables.SelectMany(table => table.Records)
+            .Select(record =>
+            {
+                var deviceId = Text(record, "deviceId");
+                var version = Number(record, "version");
+                return deviceId is not null && version >= 0
+                    ? ToAssociation(deviceId, version, record)
+                    : null;
+            })
+            .OfType<DeviceAssociation>()
+            .ToArray();
+    }
+
     public void Dispose() => _client.Dispose();
 
     private static DeviceAssociation? ToAssociation(string deviceId, long version, FluxRecord record)

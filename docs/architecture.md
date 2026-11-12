@@ -44,7 +44,7 @@ Monitoring & Analytics --gRPC--> TelemetryQueryService (GetReadingsBatch, GetLat
 - **At-least-once without duplicates**: QoS 1 acknowledges only after the pipeline handled the message; redelivery is absorbed by `deviceId` + `eventId` deduplication.
 - **Conservative authorization**: a device that Installation cannot confirm is rejected before reaching the repository.
 - **Bounded outbox**: the buffer evicts oldest-first at 360 events or 60 minutes, so an unreachable Alerting sink cannot grow the process without bound; retries never wait more than 30 s (QAS13).
-- **Separate gRPC listener**: health on 8084, private contract on 9084 with HTTP/2; the deployment target terminates TLS inside the service network.
+- **Separate gRPC listener**: health on 8085, private contract on 9084 with HTTP/2; the deployment target terminates TLS inside the service network.
 - **Flux safety**: identifiers interpolated into Flux queries are validated against `^[A-Za-z0-9._-]{1,64}$`, so no raw input reaches a query fragment.
 
 ## Quality attribute scenarios (report)

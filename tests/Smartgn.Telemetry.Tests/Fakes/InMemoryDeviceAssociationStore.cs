@@ -45,4 +45,19 @@ public sealed class InMemoryDeviceAssociationStore : IDeviceAssociationStore
         _ledger.TryGetValue((deviceId, version), out var association);
         return Task.FromResult(association);
     }
+
+    public Task<IReadOnlyList<DeviceAssociation>> FindByPointIdsAsync(
+        IReadOnlyCollection<string> pointIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (Fail)
+        {
+            throw new InvalidOperationException("ledger_unavailable");
+        }
+
+        IReadOnlyList<DeviceAssociation> associations = _ledger.Values
+            .Where(association => pointIds.Contains(association.PointId, StringComparer.Ordinal))
+            .ToArray();
+        return Task.FromResult(associations);
+    }
 }

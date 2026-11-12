@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Smartgn.Telemetry.Application;
 using Smartgn.Telemetry.Domain;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace Smartgn.Telemetry.Interfaces.Rest;
 
@@ -21,6 +22,9 @@ public sealed class TelemetryController(DeviceOperations operations, ILogger<Tel
     /// device and version that was sent.
     /// </summary>
     [HttpPost("device-associations")]
+    [SwaggerOperation(
+        Summary = "Synchronize a versioned device association",
+        Description = "Confirms the device, account, property, supply point and association version provided by Installation. Requires the private service credential when configured.")]
     [ProducesResponseType(typeof(AssociationConfirmationView), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
@@ -77,6 +81,9 @@ public sealed class TelemetryController(DeviceOperations operations, ILogger<Tel
     /// scope.
     /// </summary>
     [HttpPost("devices/status-query")]
+    [SwaggerOperation(
+        Summary = "Query device operational status",
+        Description = "Returns last-contact state for the requested device identifiers within the account and purpose scope. Requires the private service credential when configured.")]
     [ProducesResponseType(typeof(IReadOnlyCollection<OperationalStatusView>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
@@ -118,6 +125,9 @@ public sealed class TelemetryController(DeviceOperations operations, ILogger<Tel
     /// Confirms that nothing of the given association is still outstanding.
     /// </summary>
     [HttpPost("devices/{deviceId}/buffer-drain")]
+    [SwaggerOperation(
+        Summary = "Confirm an association buffer is drained",
+        Description = "Reports whether readings remain outstanding for the specified device association version. Requires the private service credential when configured.")]
     [ProducesResponseType(typeof(BufferDrainView), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
