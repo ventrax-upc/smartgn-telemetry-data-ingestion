@@ -19,11 +19,16 @@ message ReadingsBatchRequest {
   int64 from_unix_ms = 2;
   int64 to_unix_ms = 3;
   int32 limit = 4;
+  // Supply points are the public meter identifiers used by Monitoring.
+  repeated string supply_point_ids = 5;
+  string account_id = 6;
 }
 
 message LatestReadingsRequest {
   repeated string device_ids = 1;
   int32 limit = 2;
+  repeated string supply_point_ids = 3;
+  string account_id = 4;
 }
 
 message Reading {
@@ -36,6 +41,7 @@ message Reading {
   // current | delayed — delayed means measuredAt is older than 30 seconds.
   string freshness = 7;
   int64 association_version = 8;
+  string supply_point_id = 9;
 }
 
 message ReadingsBatchResponse {

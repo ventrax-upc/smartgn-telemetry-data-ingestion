@@ -250,6 +250,8 @@ public sealed class InfluxTelemetryStore : ITelemetryStore, IDisposable
     {
         switch (value)
         {
+            case NodaTime.Instant instant:
+                return instant.ToDateTimeOffset();
             case DateTime dateTime:
                 return new DateTimeOffset(DateTime.SpecifyKind(dateTime, DateTimeKind.Utc));
             case DateTimeOffset dateTimeOffset:

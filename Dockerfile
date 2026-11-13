@@ -11,6 +11,6 @@ RUN mkdir /data && chown 10001:10001 /data
 COPY tools/health.sh /app/health.sh
 COPY --from=build /app .
 USER 10001:10001
-EXPOSE 8084 9084
+EXPOSE 8085 9084
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s CMD ["bash", "/app/health.sh"]
 ENTRYPOINT ["dotnet", "Smartgn.Telemetry.dll"]

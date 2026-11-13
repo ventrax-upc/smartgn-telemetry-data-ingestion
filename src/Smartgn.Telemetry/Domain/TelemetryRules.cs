@@ -42,6 +42,9 @@ public static partial class TelemetryRules
     /// <summary>Maximum gRPC page size.</summary>
     public const int MaxQueryLimit = 1000;
 
+    /// <summary>Purpose required for private operational-status queries.</summary>
+    public const string DeviceOperationsPurpose = "DEVICE_OPERATIONS";
+
     /// <summary>Raw payload retention in the time-series repository (QAS16).</summary>
     public static readonly TimeSpan RetentionDetail = TimeSpan.FromDays(30);
 
@@ -58,6 +61,54 @@ public static partial class TelemetryRules
     /// <summary>True when the reading timestamp is implausibly far in the future.</summary>
     public static bool IsFromTheFuture(DateTimeOffset measuredAt, DateTimeOffset now) =>
         measuredAt - now > FutureTolerance;
+
+    /// <summary>
+    /// Parses the timestamp shapes used by sibling services: ISO-8601 text,
+    /// Unix seconds, or a [seconds, nanoseconds] array.
+    /// </summary>
+    public static bool TryParseTimestamp(System.Text.Json.JsonElement value, out DateTimeOffset timestamp)
+    {
+        timestamp = default;
+        try
+        {
+            if (value.ValueKind == System.Text.Json.JsonValueKind.String &&
+                DateTimeOffset.TryParse(
+                    value.GetString(),
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var parsed))
+            {
+                timestamp = parsed.ToUniversalTime();
+                return true;
+            }
+
+            if (value.ValueKind == System.Text.Json.JsonValueKind.Number && value.TryGetInt64(out var seconds))
+            {
+                timestamp = DateTimeOffset.FromUnixTimeSeconds(seconds);
+                return true;
+            }
+
+            if (value.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                var parts = value.EnumerateArray().ToArray();
+                if (parts.Length == 2 &&
+                    parts[0].TryGetInt64(out var arraySeconds) &&
+                    parts[1].TryGetInt64(out var nanoseconds) &&
+                    nanoseconds is >= 0 and < 1_000_000_000)
+                {
+                    timestamp = DateTimeOffset.FromUnixTimeSeconds(arraySeconds)
+                        .AddTicks(nanoseconds / 100);
+                    return true;
+                }
+            }
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            // An invalid epoch value is a contract error, not an application failure.
+        }
+
+        return false;
+    }
 
     [GeneratedRegex("^[A-Za-z0-9._-]{1,64}$")]
     private static partial Regex IdentifierRegex();

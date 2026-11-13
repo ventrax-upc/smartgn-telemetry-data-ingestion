@@ -59,6 +59,7 @@ public class TelemetryIngestionServiceTests
         Assert.Single(fixture.Publisher.Published);
         Assert.Equal("evt-0001", fixture.Publisher.Published[0].EventId);
         Assert.Equal(3, fixture.Publisher.Published[0].AssociationVersion);
+        Assert.Equal(3, fixture.Authorization.LastAssociationVersion);
     }
 
     [Fact]

@@ -38,7 +38,25 @@ public sealed record DeviceAuthorizationResult(bool IsAuthorized, string? Reason
 /// </summary>
 public interface IDeviceAuthorizationClient
 {
-    Task<DeviceAuthorizationResult> AuthorizeAsync(string deviceId, CancellationToken cancellationToken = default);
+    Task<DeviceAuthorizationResult> AuthorizeAsync(
+        string deviceId,
+        long associationVersion,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Stores versioned device associations confirmed by Installation.</summary>
+public interface IDeviceAssociationStore
+{
+    Task SaveAsync(DeviceAssociation association, CancellationToken cancellationToken = default);
+
+    Task<DeviceAssociation?> FindAsync(
+        string deviceId,
+        long version,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<DeviceAssociation>> FindByPointIdsAsync(
+        IReadOnlyCollection<string> pointIds,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

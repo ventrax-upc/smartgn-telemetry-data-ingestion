@@ -7,10 +7,14 @@
     <RootNamespace>Smartgn.Telemetry</RootNamespace>
     <AssemblyName>Smartgn.Telemetry</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <NoWarn>$(NoWarn);NU1603</NoWarn>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);NU1603;1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="10.1.3" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
     <PackageReference Include="Grpc.AspNetCore" Version="2.85.0" />
     <PackageReference Include="Grpc.Tools" Version="2.85.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

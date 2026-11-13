@@ -12,7 +12,7 @@ public enum TelemetryFreshness
 
 /// <summary>
 /// A validated, normalized reading ready to be persisted in the time-series
-/// repository and announced to Alerting & Notifications.
+/// repository and announced to Alerting &amp; Notifications.
 /// </summary>
 public sealed record TelemetryReading(
     string DeviceId,
@@ -22,4 +22,5 @@ public sealed record TelemetryReading(
     DateTimeOffset ReceivedAt,
     IReadOnlyDictionary<string, double> Metrics,
     TelemetryFreshness Freshness,
-    long AssociationVersion);
+    long AssociationVersion,
+    string? SupplyPointId = null);

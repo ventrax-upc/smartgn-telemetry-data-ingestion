@@ -15,6 +15,7 @@ namespace Smartgn.Telemetry.Infrastructure;
 public sealed class AlertingEventPublisher(
     HttpClient httpClient,
     string sinkUrl,
+    IDeviceAssociationStore associations,
     CircuitBreaker circuit,
     ILogger<AlertingEventPublisher> logger) : ITelemetryEventPublisher
 {
@@ -34,10 +35,20 @@ public sealed class AlertingEventPublisher(
 
         try
         {
+            var association = await associations.FindAsync(
+                telemetryEvent.DeviceId,
+                telemetryEvent.AssociationVersion,
+                cancellationToken);
+            if (association is null)
+            {
+                throw new InvalidOperationException("telemetry_association_unavailable");
+            }
+
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TelemetryRules.RequestTimeout);
 
-            var json = JsonSerializer.Serialize(telemetryEvent, SerializerOptions);
+            var json = JsonSerializer.Serialize(
+                ToAlertingEvent(telemetryEvent, association), SerializerOptions);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             using var response = await httpClient.PostAsync(sinkUrl, content, timeout.Token);
             response.EnsureSuccessStatusCode();
@@ -57,4 +68,52 @@ public sealed class AlertingEventPublisher(
             throw;
         }
     }
+
+    private static AlertingTelemetryEvent ToAlertingEvent(
+        TelemetryProcessedEvent telemetryEvent,
+        DeviceAssociation association)
+    {
+        var metrics = telemetryEvent.Metrics;
+        return new AlertingTelemetryEvent(
+            telemetryEvent.EventId,
+            telemetryEvent.DeviceId,
+            association.PropertyId,
+            association.PointId,
+            association.AccountId,
+            telemetryEvent.MeasuredAt,
+            telemetryEvent.ProcessedAt,
+            Metric(metrics, "totalVolumeM3", "consumptionM3", "volumeM3"),
+            Metric(metrics, "pressureKpa", "pressureKPa"),
+            BooleanMetric(metrics, "gasDetected", "gasPresence"),
+            BooleanMetric(metrics, "valveOpen"));
+    }
+
+    private static double? Metric(IReadOnlyDictionary<string, double> metrics, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (metrics.TryGetValue(name, out var value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool? BooleanMetric(IReadOnlyDictionary<string, double> metrics, params string[] names) =>
+        Metric(metrics, names) is { } value ? value != 0 : null;
+
+    private sealed record AlertingTelemetryEvent(
+        string EventId,
+        string DeviceId,
+        string PropertyId,
+        string SupplyPointId,
+        string AccountId,
+        DateTimeOffset MeasuredAt,
+        DateTimeOffset ReceivedAt,
+        double? ConsumptionM3,
+        double? PressureKpa,
+        bool? GasPresence,
+        bool? ValveOpen);
 }
