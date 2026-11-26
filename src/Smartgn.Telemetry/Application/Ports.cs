@@ -5,9 +5,6 @@ namespace Smartgn.Telemetry.Application;
 /// <summary>Outbound ports of the telemetry bounded context.</summary>
 public interface ITelemetryStore
 {
-    /// <summary>Deduplication check: does the event already exist? (eventId per device)</summary>
-    Task<bool> ContainsAsync(string deviceId, string eventId, CancellationToken cancellationToken = default);
-
     /// <summary>Persists a normalized reading in the time-series repository.</summary>
     Task SaveAsync(TelemetryReading reading, CancellationToken cancellationToken = default);
 
@@ -30,7 +27,7 @@ public interface ITelemetryStore
 }
 
 /// <summary>Result of asking Installation whether a device may publish.</summary>
-public sealed record DeviceAuthorizationResult(bool IsAuthorized, string? Reason);
+public sealed record DeviceAuthorizationResult(bool IsAuthorized, string? Reason, bool IsTransient = false);
 
 /// <summary>
 /// Private contract with Installation &amp; Device Management:
@@ -61,7 +58,7 @@ public interface IDeviceAssociationStore
 
 /// <summary>
 /// Delivers <c>TelemetryProcessed</c> events to Alerting &amp; Notifications.
-/// The implementation buffers locally, so failures are retried at-least-once.
+/// The durable outbox worker retries delivery at least once.
 /// </summary>
 public interface ITelemetryEventPublisher
 {

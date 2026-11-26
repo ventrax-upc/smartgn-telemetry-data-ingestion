@@ -46,8 +46,8 @@ public sealed class MqttConnectionManager : IDisposable
         _client.DisconnectedAsync += OnDisconnectedAsync;
     }
 
-    /// <summary>Raised for every acknowledged inbound application message.</summary>
-    public event Func<string, byte[], Task>? MessageReceived;
+    /// <summary>Processes an inbound message before the receiver sends PUBACK.</summary>
+    public event Func<string, byte[], CancellationToken, Task>? MessageReceived;
 
     public bool IsConnected => _client.IsConnected;
 
@@ -105,14 +105,21 @@ public sealed class MqttConnectionManager : IDisposable
             try
             {
                 _disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                await _client.ConnectAsync(BuildOptions(), cancellationToken);
-                await SubscribeAsync(cancellationToken);
+                var connected = await _client.ConnectAsync(BuildOptions(), cancellationToken);
+                if (!connected.IsSessionPresent)
+                {
+                    await SubscribeAsync(cancellationToken);
+                }
                 _logger.LogInformation("Connected to MQTT broker {Url} as {ClientId}", _settings.Url, _settings.ClientId);
-                attempt = 0;
+
 
                 if (_client.IsConnected)
                 {
                     await _disconnected.Task.WaitAsync(cancellationToken);
+                    if (_client.IsConnected)
+                    {
+                        await _client.DisconnectAsync();
+                    }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -148,7 +155,13 @@ public sealed class MqttConnectionManager : IDisposable
         var options = new MqttClientSubscribeOptionsBuilder()
             .WithTopicFilter(filter => filter.WithTopic(_settings.Topic).WithAtLeastOnceQoS())
             .Build();
-        await _client.SubscribeAsync(options, cancellationToken);
+        var result = await _client.SubscribeAsync(options, cancellationToken);
+        if (result.Items.Count != 1 || (int)result.Items.Single().ResultCode != 1)
+        {
+            // A failed subscription must leave no resumable empty session.
+            await _client.DisconnectAsync(new MqttClientDisconnectOptions { SessionExpiryInterval = 0 }, cancellationToken);
+            throw new InvalidOperationException("EMQX did not grant the required QoS 1 telemetry subscription.");
+        }
     }
 
     private MqttClientOptions BuildOptions()
@@ -156,7 +169,9 @@ public sealed class MqttConnectionManager : IDisposable
         var builder = new MqttClientOptionsBuilder()
             .WithClientId(_settings.ClientId)
             .WithProtocolVersion(MqttProtocolVersion.V500)
-            .WithCleanSession();
+            .WithCleanSession(false)
+            .WithSessionExpiryInterval(_settings.SessionExpirySeconds)
+            .WithReceiveMaximum(16);
 
         var uri = new Uri(_settings.Url);
         var useTls = uri.Scheme is "ssl" or "tls" or "mqtts";
@@ -173,8 +188,6 @@ public sealed class MqttConnectionManager : IDisposable
             builder = builder.WithTlsOptions(new MqttClientTlsOptions
             {
                 UseTls = true,
-                AllowUntrustedCertificates = true,
-                IgnoreCertificateChainErrors = true,
             });
         }
 
@@ -183,30 +196,18 @@ public sealed class MqttConnectionManager : IDisposable
 
     private async Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs args)
     {
+        args.AutoAcknowledge = false;
         try
         {
-            var handler = MessageReceived;
-            if (handler is not null)
-            {
-                await handler.Invoke(
-                    args.ApplicationMessage.Topic,
-                    args.ApplicationMessage.PayloadSegment.ToArray());
-            }
+            var handler = MessageReceived ?? throw new InvalidOperationException("MQTT consumer is unavailable.");
+            await handler(args.ApplicationMessage.Topic, args.ApplicationMessage.PayloadSegment.ToArray(), _stopping.Token);
+            await args.AcknowledgeAsync(_stopping.Token);
         }
-        catch (Exception exception)
+        catch (Exception exception) when (!_stopping.IsCancellationRequested)
         {
-            _logger.LogError(exception, "Telemetry consumer failed for topic {Topic}", args.ApplicationMessage.Topic);
-        }
-        finally
-        {
-            try
-            {
-                await args.AcknowledgeAsync(CancellationToken.None);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogDebug(exception, "MQTT acknowledgment failed (redelivery will be deduplicated)");
-            }
+            _logger.LogWarning(exception, "Telemetry processing interrupted on {Topic}; reconnecting without PUBACK",
+                args.ApplicationMessage.Topic);
+            _disconnected.TrySetResult();
         }
     }
 

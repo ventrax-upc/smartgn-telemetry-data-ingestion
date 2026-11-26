@@ -21,7 +21,7 @@ public sealed class InfluxTelemetryStore : ITelemetryStore, IDisposable
     {
         "_measurement", "_start", "_stop", "_time", "_result", "result", "table",
         "_field", "_value", "deviceId", "eventId", "freshness",
-        "sequenceNumber", "associationVersion",
+        "sequenceNumber", "associationVersion", "pointSlot", "receivedAtUnixMs",
     };
 
     private readonly InfluxDBClient _client;
@@ -43,26 +43,6 @@ public sealed class InfluxTelemetryStore : ITelemetryStore, IDisposable
         _client = new InfluxDBClient(options);
     }
 
-    public async Task<bool> ContainsAsync(string deviceId, string eventId, CancellationToken cancellationToken = default)
-    {
-        if (!TelemetryRules.IsValidIdentifier(deviceId, 64) || !TelemetryRules.IsValidIdentifier(eventId, 128))
-        {
-            return false;
-        }
-
-        var flux = $"""
-            from(bucket: "{Escape(_settings.Bucket)}")
-              |> range(start: -{TelemetryRules.RetentionDetail.Days}d)
-              |> filter(fn: (r) => r["_measurement"] == "{Escape(_settings.Measurement)}"
-                   and r["deviceId"] == "{Escape(deviceId)}"
-                   and r["eventId"] == "{Escape(eventId)}")
-              |> limit(n: 1)
-            """;
-
-        var records = await _client.GetQueryApi().QueryAsync(flux, _settings.Org, cancellationToken);
-        return records.Count > 0;
-    }
-
     public async Task SaveAsync(TelemetryReading reading, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(reading);
@@ -70,12 +50,13 @@ public sealed class InfluxTelemetryStore : ITelemetryStore, IDisposable
         var point = PointData
             .Measurement(_settings.Measurement)
             .Tag("deviceId", reading.DeviceId)
-            .Tag("eventId", reading.EventId)
+            .Tag("pointSlot", reading.PointSlot.ToString(CultureInfo.InvariantCulture))
+            .Field("eventId", reading.EventId)
             .Tag("freshness", FreshnessTag(reading.Freshness))
             .Field("sequenceNumber", reading.SequenceNumber)
             .Field("associationVersion", reading.AssociationVersion)
             .Field("receivedAtUnixMs", reading.ReceivedAt.ToUnixTimeMilliseconds())
-            .Timestamp(reading.MeasuredAt, WritePrecision.Ms);
+            .Timestamp(reading.MeasuredAt, WritePrecision.Ns);
 
         foreach (var (name, value) in reading.Metrics)
         {
@@ -111,7 +92,7 @@ public sealed class InfluxTelemetryStore : ITelemetryStore, IDisposable
             from(bucket: "{Escape(_settings.Bucket)}")
               |> range(start: time(v: "{from:O}"), stop: time(v: "{to:O}"))
               |> filter(fn: (r) => r["_measurement"] == "{Escape(_settings.Measurement)}" and ({deviceFilter}))
-              |> pivot(rowKey: ["_time", "eventId"], columnKey: ["_field"], valueColumn: "_value")
+              |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
               |> sort(columns: ["_time"], desc: true)
               |> limit(n: {limit})
             """;
@@ -121,6 +102,10 @@ public sealed class InfluxTelemetryStore : ITelemetryStore, IDisposable
             .SelectMany(table => table.Records)
             .Select(ToReading)
             .OfType<TelemetryReading>()
+            .DistinctBy(reading => (reading.DeviceId, reading.EventId))
+            .OrderByDescending(reading => reading.MeasuredAt)
+            .ThenByDescending(reading => reading.SequenceNumber)
+            .Take(limit)
             .ToArray();
     }
 
@@ -143,13 +128,16 @@ public sealed class InfluxTelemetryStore : ITelemetryStore, IDisposable
                   |> range(start: -{TelemetryRules.RetentionDetail.Days}d)
                   |> filter(fn: (r) => r["_measurement"] == "{Escape(_settings.Measurement)}"
                        and r["deviceId"] == "{Escape(device)}")
-                  |> pivot(rowKey: ["_time", "eventId"], columnKey: ["_field"], valueColumn: "_value")
+                  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                   |> sort(columns: ["_time"], desc: true)
                   |> limit(n: 1)
                 """;
 
             var tables = await _client.GetQueryApi().QueryAsync(flux, _settings.Org, cancellationToken);
-            readings.AddRange(tables.SelectMany(table => table.Records).Select(ToReading).OfType<TelemetryReading>());
+            readings.AddRange(tables.SelectMany(table => table.Records).Select(ToReading).OfType<TelemetryReading>()
+                .OrderByDescending(reading => reading.MeasuredAt)
+                .ThenByDescending(reading => reading.SequenceNumber)
+                .Take(1));
         }
 
         return readings

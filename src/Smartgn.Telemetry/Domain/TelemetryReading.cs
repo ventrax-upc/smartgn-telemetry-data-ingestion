@@ -23,4 +23,7 @@ public sealed record TelemetryReading(
     IReadOnlyDictionary<string, double> Metrics,
     TelemetryFreshness Freshness,
     long AssociationVersion,
-    string? SupplyPointId = null);
+    string? SupplyPointId = null)
+{
+    public int PointSlot { get; init; }
+}

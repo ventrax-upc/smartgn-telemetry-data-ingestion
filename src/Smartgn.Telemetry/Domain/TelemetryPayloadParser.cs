@@ -20,6 +20,12 @@ public sealed record TelemetryParseResult(bool IsSuccess, TelemetryEvent? Value,
 /// </summary>
 public static partial class TelemetryPayloadParser
 {
+    private static readonly HashSet<string> ReservedMetrics = new(StringComparer.Ordinal)
+    {
+        "deviceId", "eventId", "pointSlot", "freshness", "receivedAtUnixMs", "sequenceNumber",
+        "associationVersion", "result", "table",
+    };
+
     public static TelemetryParseResult Parse(string json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -105,7 +111,7 @@ public static partial class TelemetryPayloadParser
             var values = new Dictionary<string, double>(StringComparer.Ordinal);
             foreach (var property in metrics.EnumerateObject())
             {
-                if (!MetricNameRegex().IsMatch(property.Name))
+                if (!MetricNameRegex().IsMatch(property.Name) || ReservedMetrics.Contains(property.Name))
                 {
                     return TelemetryParseResult.Fail("metric_name_invalid");
                 }

@@ -7,7 +7,7 @@ namespace Smartgn.Telemetry.Application;
 public sealed class DeviceOperations(
     IDeviceAssociationStore associations,
     ITelemetryStore telemetry,
-    TelemetryEventBuffer outbox,
+    ITelemetryInbox inbox,
     TimeProvider clock,
     ILogger<DeviceOperations> logger)
 {
@@ -90,7 +90,7 @@ public sealed class DeviceOperations(
             .GroupBy(reading => reading.DeviceId, StringComparer.Ordinal)
             .ToDictionary(
                 group => group.Key,
-                group => group.OrderByDescending(reading => reading.ReceivedAt).First(),
+                group => group.OrderByDescending(reading => reading.MeasuredAt).ThenByDescending(reading => reading.SequenceNumber).First(),
                 StringComparer.Ordinal);
         var now = clock.GetUtcNow();
 
@@ -151,7 +151,17 @@ public sealed class DeviceOperations(
             return new BufferDrainResult(Drained: false, PendingReadings: 0, EvidenceId: string.Empty);
         }
 
-        var pending = outbox.CountPending(deviceId, associationVersion, clock.GetUtcNow());
+        int pending;
+        try
+        {
+            pending = await inbox.CountPendingAsync(deviceId, associationVersion, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Could not count pending telemetry for {DeviceId} version {Version}",
+                deviceId, associationVersion);
+            throw new TelemetryStoreUnavailableException("The telemetry processing ledger is unavailable.", exception);
+        }
         if (pending > 0)
         {
             return new BufferDrainResult(Drained: false, PendingReadings: pending, EvidenceId: string.Empty);

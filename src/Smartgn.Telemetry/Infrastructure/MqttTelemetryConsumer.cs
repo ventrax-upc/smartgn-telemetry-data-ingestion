@@ -38,7 +38,7 @@ public sealed class MqttTelemetryConsumer(
         }
     }
 
-    private async Task OnMessageAsync(string topic, byte[] payload)
+    private async Task OnMessageAsync(string topic, byte[] payload, CancellationToken cancellationToken)
     {
         var topicDeviceId = DeviceIdFromTopic(topic);
         if (topicDeviceId is null)
@@ -66,12 +66,12 @@ public sealed class MqttTelemetryConsumer(
             return;
         }
 
-        var result = await ingestion.IngestAsync(parsed.Value);
+        var result = await ingestion.IngestAsync(parsed.Value, cancellationToken);
         switch (result.Outcome)
         {
             case IngestionOutcome.Accepted:
                 logger.LogDebug(
-                    "Stored telemetry {EventId} from device {DeviceId} ({Freshness})",
+                    "Queued telemetry {EventId} from device {DeviceId} ({Freshness})",
                     parsed.Value.EventId,
                     parsed.Value.DeviceId,
                     result.Reading!.Freshness);
@@ -82,6 +82,8 @@ public sealed class MqttTelemetryConsumer(
                     parsed.Value.EventId,
                     parsed.Value.DeviceId);
                 break;
+            case IngestionOutcome.StoreUnavailable:
+                throw new InvalidOperationException(result.Error);
             default:
                 logger.LogWarning(
                     "Telemetry {EventId} from device {DeviceId} rejected: {Outcome} ({Error})",

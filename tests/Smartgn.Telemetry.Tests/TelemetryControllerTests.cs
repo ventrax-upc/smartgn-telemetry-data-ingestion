@@ -16,14 +16,14 @@ public class TelemetryControllerTests
     private sealed record Fixture(
         InMemoryDeviceAssociationStore Ledger,
         InMemoryTelemetryStore Store,
-        TelemetryEventBuffer Outbox,
+        InMemoryTelemetryInbox Outbox,
         TelemetryController Controller);
 
     private static Fixture Create()
     {
         var ledger = new InMemoryDeviceAssociationStore();
         var store = new InMemoryTelemetryStore();
-        var outbox = new TelemetryEventBuffer();
+        var outbox = new InMemoryTelemetryInbox();
         var operations = new DeviceOperations(
             ledger,
             store,
