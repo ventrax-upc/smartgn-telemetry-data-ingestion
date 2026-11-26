@@ -21,10 +21,12 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="InfluxDB.Client" Version="4.18.0" />
+    <PackageReference Include="Npgsql" Version="10.0.0" />
     <PackageReference Include="MQTTnet" Version="4.3.7.1207" />
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Infrastructure/Sql/*.sql" />
     <Protobuf Include="Protos\telemetry_query.proto" GrpcServices="Server" />
   </ItemGroup>
 

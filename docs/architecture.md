@@ -1,58 +1,24 @@
-# Architecture
+# Telemetry processing and recovery
 
-Telemetry & Data Ingestion is one of the seven bounded contexts of SmartGN (report chapter IV). It receives device readings from the MQTT broker, validates, deduplicates and normalizes them, stores them in a time-series repository and announces `TelemetryProcessed` to Alerting & Notifications, exposing a private gRPC read contract to Monitoring & Analytics.
+Telemetry validates the MQTT 5 payload and checks the device association with Installation. It then writes an inbox entry to its own PostgreSQL database and sends PUBACK after PostgreSQL commits. Invalid payloads, unauthorized devices and identity conflicts are audited in logs and consumed. Dependency and capacity failures leave the delivery unacknowledged and trigger reconnect. MQTTnet automatic acknowledgments are disabled in the receive callback.
 
-## Components
-
-| Component | Report name | Implementation |
-| --- | --- | --- |
-| MQTT connection | `MqttConnectionManager` | `Infrastructure/MqttConnectionManager.cs`, one client per process, QoS 1, backoff 1-2-4-8-16-30 s |
-| MQTT consumer | Telemetry Consumer | `Infrastructure/MqttTelemetryConsumer.cs`, topic `smartgn/devices/+/telemetry` |
-| Validation / dedup / normalization | Ingestion pipeline | `Domain/TelemetryPayloadParser.cs`, `Application/TelemetryIngestionService.cs` |
-| Time-series repository | InfluxDB store | `Infrastructure/InfluxTelemetryStore.cs`, 30-day retention (QAS16) |
-| Event outbox | TelemetryProcessed publisher | `Application/TelemetryEventBuffer.cs` + `Infrastructure/TelemetryEventFlushWorker.cs` |
-| Circuit breaker | Alerting guard | `Application/CircuitBreaker.cs` (QAS18: 2 s, 5 failures, 30 s probe) |
-| Read contract | `TelemetryQueryService` | `Grpc/TelemetryQueryGrpcService.cs` on port 9084 |
-
-## Dependencies
-
-- **MQTT broker** (EMQX in the deployment target, Mosquitto locally): inbound readings.
-- **Installation & Device Management**: `GET /internal/v1/devices/{deviceId}/authorization` with the shared `INTERNAL_SERVICE_TOKEN`. Any unavailable dependency rejects the reading — unknown connectivity is never treated as a successful business operation.
-- **InfluxDB**: durable storage of normalized readings.
-- **Alerting & Notifications**: `TelemetryProcessed` events over the internal HTTP sink, buffered locally.
-
-## Data flow
-
-```
-device --MQTT QoS1--> consumer --> parser --> authorization (Installation)
-                                        |               |
-                                        v               v
-                                  dedup (eventId) --> InfluxDB (30d)
-                                                          |
-                                                          v
-                                                  outbox (360 / 60 min)
-                                                          |
-                                          circuit breaker v (QAS18)
-                                                          v
-                                              Alerting sink (TelemetryProcessed)
-
-Monitoring & Analytics --gRPC--> TelemetryQueryService (GetReadingsBatch, GetLatestReadings)
-```
-
-## Decisions
-
-- **At-least-once without duplicates**: QoS 1 acknowledges only after the pipeline handled the message; redelivery is absorbed by `deviceId` + `eventId` deduplication.
-- **Conservative authorization**: a device that Installation cannot confirm is rejected before reaching the repository.
-- **Bounded outbox**: the buffer evicts oldest-first at 360 events or 60 minutes, so an unreachable Alerting sink cannot grow the process without bound; retries never wait more than 30 s (QAS13).
-- **Separate gRPC listener**: health on 8085, private contract on 9084 with HTTP/2; the deployment target terminates TLS inside the service network.
-- **Flux safety**: identifiers interpolated into Flux queries are validated against `^[A-Za-z0-9._-]{1,64}$`, so no raw input reaches a query fragment.
-
-## Quality attribute scenarios (report)
-
-| QAS | Behavior here |
+| Transition | Recovery |
 | --- | --- |
-| QAS6 | Ingestion decouples the broker from the repository through the outbox |
-| QAS13 | Local buffer 360 events / 60 min, resend ≤ 30 s |
-| QAS15 | `measuredAt` older than 30 s is stored as `delayed`; future skew > 5 s is rejected |
-| QAS16 | Raw readings retained 30 days in InfluxDB |
-| QAS18 | Outbound HTTP timeout 2 s, circuit opens after 5 consecutive failures, probe after 30 s |
+| MQTT received and PostgreSQL has not committed | No PUBACK. The subscriber resumes its broker session subject to its expiry and queue limits. |
+| PostgreSQL committed and PUBACK was lost | The unique pair `deviceId, eventId` and normalized payload fingerprint absorb retransmission. A different payload using the same pair is rejected and logged. |
+| Pending InfluxDB write | A worker reserves the row with `FOR UPDATE SKIP LOCKED`. It saves the point using the stored slot and advances the row to the HTTP stage. A crash after InfluxDB commits causes the same point to be written again. |
+| Pending HTTP delivery | A separate worker sends authenticated `TelemetryProcessed` over HTTP. Timeouts, circuit breaker and bounded backoff regulate retries. |
+| Alerting committed and the HTTP response or local commit was lost | Alerting recognizes the same device and event via its transactional receipt. A successful repeat lets Telemetry finish the row. |
+| Stage retries exhausted | The row remains in PostgreSQL with its stage and error. After correcting the cause, an operator runs `SELECT telemetry_requeue('device-id', 'event-id');` on the Telemetry database. The function resets retries in the same stage. |
+
+The row lock is released by commit, rollback or connection loss. The HTTP receiver uses PostgreSQL to commit the receipt, matching alerts and notification intents together. PostgreSQL cannot make an atomic transaction with InfluxDB or HTTP. The workers recover across those boundaries with stable identities.
+
+New InfluxDB points store `deviceId` as a tag and `eventId` as a field. The point key is the measurement, tag set and timestamp. `pointSlot` defaults to 0 and increments per device only when multiple events have the same original timestamp. The slot is allocated under a device-scoped lock and re-used on retries. The original timestamp is written with nanosecond precision and sequence as a field. The reader also supports the former `eventId` tag and coalesces duplicate identities in history returned by the service. Existing points are left in place and expire under the configured InfluxDB retention. Legacy identities have no PostgreSQL fingerprint until received by this pipeline. Avoid deliberate replay of the pre-cutover backlog without checking its effects on Alerting.
+
+The local default cap is 4,000,000 unfinished rows, including quarantine. 5,000 devices each buffering 360 readings represent 1.8 million readings. An hour at 500 events/s represents 1.8 million and an hour at 1,000 events/s represents 3.6 million. The cap is a row budget for such a backlog. Disk sizing also needs measured payload, index, WAL and replica overhead. Completed rows retain the identity, fingerprint and slot for deduplication and release the JSON payload. Plan and monitor storage for the long-lived ledger before sustained deployment. At the cap a new event is backpressured without evicting an older row. Gauges `telemetry.pending`, `telemetry.quarantined` and `telemetry.capacity` refresh every 30 seconds. Logs warn at 80% occupancy or whenever quarantined rows exist. Connect the meter and warnings to the deployment's monitoring system.
+
+The device's persistent buffer target is 360 readings per device. The MQTT broker's finite session queue is a separate buffer. Neither guarantees retention through broker node loss or full queues. In the local profile EMQX 5.8 uses a stable non-shared subscriber ID with a default session expiry of 86,400 seconds. A device still receives its QoS 1 PUBACK from EMQX independently of Telemetry's receipt. End-to-end device acknowledgments and broker disk durability need separate validation.
+
+To exercise shared subscriptions, set the MQTT topic to `$share/telemetry/smartgn/devices/+/telemetry` for each subscriber and give each replica a distinct, stable client ID. Stop the ordinary subscriber before exercising the group. Do not re-use an existing client ID for a different topic while its session is present. Distribution and broker queuing depend on the broker version and configuration. Shared subscriptions do not imply global ordering or affinity. Latest storage reads use measurement time and sequence for equal times.
+
+Local settings include `TELEMETRY_DB`, `TELEMETRY_PENDING_CAPACITY`, `TELEMETRY_MAX_ATTEMPTS`, `TELEMETRY_INFLUX_WORKERS`, `TELEMETRY_ALERTING_WORKERS`, `MQTT_CLIENT_ID`, `MQTT_TOPIC` and `MQTT_SESSION_EXPIRY_SECONDS`. The optional PostgreSQL regression test runs with `TELEMETRY_TEST_DB` pointing to a disposable PostgreSQL database. It creates and removes an isolated schema.

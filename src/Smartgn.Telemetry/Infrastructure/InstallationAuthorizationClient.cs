@@ -7,9 +7,8 @@ namespace Smartgn.Telemetry.Infrastructure;
 /// Asks Installation &amp; Device Management whether a device is currently
 /// provisioned and associated:
 /// GET /internal/v1/devices/{deviceId}/authorization.
-/// Any unavailable dependency is treated conservatively — the reading is
-/// rejected instead of fabricating an authorization ("unknown connectivity is
-/// never a successful business operation").
+/// An unavailable dependency returns a transient outcome so MQTT
+/// can retry authorization before acknowledging the reading.
 /// </summary>
 public sealed class InstallationAuthorizationClient(HttpClient httpClient) : IDeviceAuthorizationClient
 {
@@ -20,7 +19,7 @@ public sealed class InstallationAuthorizationClient(HttpClient httpClient) : IDe
     {
         try
         {
-            var response = await httpClient.GetAsync(
+            using var response = await httpClient.GetAsync(
                 $"/internal/v1/devices/{Uri.EscapeDataString(deviceId)}/authorization?associationVersion={associationVersion}",
                 cancellationToken);
 
@@ -36,12 +35,12 @@ public sealed class InstallationAuthorizationClient(HttpClient httpClient) : IDe
 
             if (response.StatusCode is HttpStatusCode.Unauthorized)
             {
-                return new DeviceAuthorizationResult(false, "service_token_rejected");
+                return new DeviceAuthorizationResult(false, "service_token_rejected", IsTransient: true);
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                return new DeviceAuthorizationResult(false, "installation_unavailable");
+                return new DeviceAuthorizationResult(false, "installation_unavailable", IsTransient: true);
             }
 
             var authorization = await response.Content.ReadFromJsonAsync<AuthorizationResponse>(cancellationToken);
@@ -49,7 +48,7 @@ public sealed class InstallationAuthorizationClient(HttpClient httpClient) : IDe
                 !string.Equals(authorization.DeviceId, deviceId, StringComparison.Ordinal) ||
                 authorization.AssociationVersion != associationVersion)
             {
-                return new DeviceAuthorizationResult(false, "installation_contract_invalid");
+                return new DeviceAuthorizationResult(false, "installation_contract_invalid", IsTransient: true);
             }
 
             return authorization.Authorized
@@ -58,11 +57,11 @@ public sealed class InstallationAuthorizationClient(HttpClient httpClient) : IDe
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new DeviceAuthorizationResult(false, "installation_timeout");
+            return new DeviceAuthorizationResult(false, "installation_timeout", IsTransient: true);
         }
         catch (HttpRequestException)
         {
-            return new DeviceAuthorizationResult(false, "installation_unavailable");
+            return new DeviceAuthorizationResult(false, "installation_unavailable", IsTransient: true);
         }
     }
 

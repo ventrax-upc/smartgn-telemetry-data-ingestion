@@ -1,90 +1,65 @@
 using Smartgn.Telemetry.Application;
-using Smartgn.Telemetry.Domain;
 
 namespace Smartgn.Telemetry.Infrastructure;
 
-/// <summary>
-/// Drains the local outbox towards Alerting &amp; Notifications (QAS13):
-/// batches of 50 events, a flush attempt every 5 seconds while healthy and
-/// 1-2-4-8-16-30 s backoff after failures, so a resend never waits more than
-/// 30 seconds and expired events are dropped after 60 minutes.
-/// </summary>
+/// <summary>Runs independent time-series writers and HTTP delivery workers.</summary>
 public sealed class TelemetryEventFlushWorker(
-    TelemetryEventBuffer buffer,
+    PostgresTelemetryInbox inbox,
+    ITelemetryStore store,
     ITelemetryEventPublisher publisher,
-    TimeProvider clock,
+    DurableTelemetrySettings settings,
     ILogger<TelemetryEventFlushWorker> logger) : BackgroundService
 {
-    private static readonly TimeSpan[] Backoff =
-    [
-        TimeSpan.FromSeconds(1),
-        TimeSpan.FromSeconds(2),
-        TimeSpan.FromSeconds(4),
-        TimeSpan.FromSeconds(8),
-        TimeSpan.FromSeconds(16),
-        TelemetryRules.MaxResendInterval,
-    ];
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(
+            Enumerable.Range(0, settings.InfluxWorkers).Select(_ => DrainAsync("influx", stoppingToken))
+                .Concat(Enumerable.Range(0, settings.AlertingWorkers).Select(_ => DrainAsync("alerting", stoppingToken)))
+                .Append(ReportOccupancyAsync(stoppingToken)));
 
-    private static readonly TimeSpan HealthyFlushInterval = TimeSpan.FromSeconds(5);
-    private const int BatchSize = 50;
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    private async Task DrainAsync(string stage, CancellationToken stoppingToken)
     {
-        var attempt = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
-            buffer.RemoveExpired(clock.GetUtcNow());
-            var batch = buffer.DequeueBatch(BatchSize);
-
-            var failed = new List<TelemetryProcessedEvent>(batch.Count);
-            var flushFailed = false;
-
-            foreach (var telemetryEvent in batch)
-            {
-                if (flushFailed)
-                {
-                    failed.Add(telemetryEvent);
-                    continue;
-                }
-
-                try
-                {
-                    await publisher.PublishAsync(telemetryEvent, stoppingToken);
-                    attempt = 0;
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    failed.Add(telemetryEvent);
-                    flushFailed = true;
-                }
-                catch (Exception exception)
-                {
-                    logger.LogWarning(exception, "TelemetryProcessed delivery failed; {Count} events remain buffered", batch.Count);
-                    failed.Add(telemetryEvent);
-                    flushFailed = true;
-                }
-            }
-
-            if (failed.Count > 0)
-            {
-                buffer.RequeueFront(failed);
-            }
-
-            var delay = flushFailed
-                ? Backoff[Math.Min(attempt, Backoff.Length - 1)]
-                : HealthyFlushInterval;
-            if (flushFailed)
-            {
-                attempt++;
-            }
-
             try
             {
-                await Task.Delay(delay, clock, stoppingToken);
+                if (!await inbox.ProcessNextAsync(stage, WriteAsync, stoppingToken))
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(250), stoppingToken);
+                }
             }
-            catch (TaskCanceledException)
+            catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
             {
-                break;
+                logger.LogWarning(exception, "Telemetry {Stage} worker could not access the processing ledger", stage);
+                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+            }
+        }
+
+        async Task WriteAsync(Domain.TelemetryReading reading, CancellationToken cancellationToken)
+        {
+            if (stage == "influx")
+            {
+                await store.SaveAsync(reading, cancellationToken);
+                return;
+            }
+
+            await publisher.PublishAsync(new TelemetryProcessedEvent(
+                reading.DeviceId, reading.EventId, reading.SequenceNumber, reading.MeasuredAt,
+                reading.ReceivedAt, reading.AssociationVersion, reading.Metrics), cancellationToken);
+        }
+    }
+
+    private async Task ReportOccupancyAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            try
+            {
+                await inbox.ReportOccupancyAsync(stoppingToken);
+            }
+            catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
+            {
+                logger.LogWarning(exception, "Could not measure durable telemetry occupancy");
             }
         }
     }

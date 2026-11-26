@@ -1,0 +1,18 @@
+# Source: Ventrax AV4 report. Acceptance specification; execution is verified separately.
+Feature: Telemetry ingestion and device validation
+
+  Scenario: Store an authorized telemetry reading
+    Given an active device with a valid association
+    And a telemetry message with a unique eventId and supported schemaVersion
+    When the device publishes the message to its authorized MQTT topic
+    Then the reading is accepted and persisted in InfluxDB
+
+  Scenario: Reject a duplicate telemetry event
+    Given a reading has already been processed using its eventId
+    When the same MQTT message is received again
+    Then the service does not persist a duplicate reading
+
+  Scenario: Reject a reading from an unauthorized device
+    Given a device does not have a valid association
+    When the device publishes telemetry
+    Then the event is rejected without storing a reading

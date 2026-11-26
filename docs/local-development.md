@@ -58,4 +58,6 @@ Verify with the Influx UI on `http://127.0.0.1:18086` (admin / password from `.e
 
 ## Project layout
 
-`src/Smartgn.Telemetry` follows the ports-and-adapters shape used by the sibling services: `Domain` (entities and rules), `Application` (use cases and outbound ports), `Infrastructure` (InfluxDB, MQTT, HTTP adapters), `Grpc` (private contract). Tests live in `tests/Smartgn.Telemetry.Tests` and use in-memory fakes, so `dotnet test` needs no Docker.
+`src/Smartgn.Telemetry` follows the ports-and-adapters shape used by the sibling services: `Domain` (entities and rules), `Application` (use cases and outbound ports), `Infrastructure` (InfluxDB, MQTT, HTTP adapters), `Grpc` (private contract). Tests live in `tests/Smartgn.Telemetry.Tests`. Unit tests use in-memory fakes. Set `TELEMETRY_TEST_DB` to a disposable PostgreSQL database to include the processing ledger regression.
+
+The service requires "TELEMETRY_DB" when launched outside Compose. Standalone Compose uses its own PostgreSQL volume and requires "TELEMETRY_DB_PASSWORD" in the local environment. See [processing and recovery](architecture.md) for worker settings and requeue instructions.

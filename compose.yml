@@ -1,5 +1,17 @@
 name: smartgn-telemetry
 services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: smartgn_telemetry
+      POSTGRES_USER: smartgn_telemetry
+      POSTGRES_PASSWORD: ${TELEMETRY_DB_PASSWORD:?Set TELEMETRY_DB_PASSWORD}
+    volumes: [processing-data:/var/lib/postgresql]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U smartgn_telemetry']
+      interval: 5s
+      timeout: 3s
+      retries: 30
   influxdb:
     image: influxdb:2.7
     environment:
@@ -28,6 +40,7 @@ services:
   telemetry:
     build: .
     environment:
+      TELEMETRY_DB: "Host=postgres;Database=smartgn_telemetry;Username=smartgn_telemetry;Password=${TELEMETRY_DB_PASSWORD:?Set TELEMETRY_DB_PASSWORD};Maximum Pool Size=32;Timeout=3;Command Timeout=5"
       PORT: "8085"
       GRPC_PORT: "9084"
       MQTT_URL: tcp://mqtt:1883
@@ -42,5 +55,7 @@ services:
     depends_on:
       influxdb: {condition: service_healthy}
       mqtt: {condition: service_healthy}
+      postgres: {condition: service_healthy}
 volumes:
   influx-data:
+  processing-data:

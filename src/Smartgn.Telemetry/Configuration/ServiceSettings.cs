@@ -6,6 +6,8 @@ public sealed record MqttSettings
     /// <summary>Broker URL, for example <c>tcp://localhost:1883</c> or <c>ssl://broker:8883</c>.</summary>
     public string Url { get; init; } = "tcp://localhost:1883";
 
+    public uint SessionExpirySeconds { get; init; } = 86400;
+
     public string ClientId { get; init; } = "smartgn-telemetry";
 
     public string? Username { get; init; }

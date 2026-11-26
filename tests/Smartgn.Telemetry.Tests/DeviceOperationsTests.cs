@@ -12,7 +12,7 @@ public class DeviceOperationsTests
     private sealed record Fixture(
         InMemoryDeviceAssociationStore Ledger,
         InMemoryTelemetryStore Store,
-        TelemetryEventBuffer Outbox,
+        InMemoryTelemetryInbox Outbox,
         FixedTimeProvider Clock,
         DeviceOperations Operations);
 
@@ -20,7 +20,7 @@ public class DeviceOperationsTests
     {
         var ledger = new InMemoryDeviceAssociationStore();
         var store = new InMemoryTelemetryStore();
-        var outbox = new TelemetryEventBuffer();
+        var outbox = new InMemoryTelemetryInbox();
         var clock = new FixedTimeProvider(Now);
         var operations = new DeviceOperations(
             ledger,
@@ -37,10 +37,10 @@ public class DeviceOperationsTests
         long version = 3) =>
         new(deviceId, version, "acc-1", "prop-1", "point-1", Now, null);
 
-    private static TelemetryProcessedEvent PendingEvent(
+    private static TelemetryReading PendingEvent(
         string deviceId = "meter-001",
         long associationVersion = 3) =>
-        new(deviceId, "evt-0001", 1, Now, Now, associationVersion, new Dictionary<string, double>());
+        new(deviceId, "evt-0001", 1, Now, Now, new Dictionary<string, double>(), TelemetryFreshness.Current, associationVersion);
 
     [Fact]
     public async Task SynchronizeAssociation_StoresTheLedgerAndConfirmsTheExactVersion()
@@ -222,7 +222,7 @@ public class DeviceOperationsTests
     {
         var fixture = Create();
         await fixture.Operations.SynchronizeAssociationAsync(Association());
-        fixture.Outbox.Enqueue(PendingEvent(), fixture.Clock.UtcNow);
+        await fixture.Outbox.EnqueueAsync(PendingEvent(), default);
 
         var result = await fixture.Operations.DrainBufferAsync("meter-001", 3);
 
@@ -236,7 +236,7 @@ public class DeviceOperationsTests
     {
         var fixture = Create();
         await fixture.Operations.SynchronizeAssociationAsync(Association(version: 4));
-        fixture.Outbox.Enqueue(PendingEvent(associationVersion: 3), fixture.Clock.UtcNow);
+        await fixture.Outbox.EnqueueAsync(PendingEvent(associationVersion: 3), default);
 
         var result = await fixture.Operations.DrainBufferAsync("meter-001", 4);
 

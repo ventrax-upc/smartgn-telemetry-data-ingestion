@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging.Abstractions;
 using Smartgn.Telemetry.Application;
 using Smartgn.Telemetry.Domain;
 using Smartgn.Telemetry.Tests.Fakes;
@@ -10,26 +9,18 @@ public class TelemetryIngestionServiceTests
     private static readonly DateTimeOffset Now = new(2026, 5, 10, 12, 0, 0, TimeSpan.Zero);
 
     private sealed record Fixture(
-        InMemoryTelemetryStore Store,
+        InMemoryTelemetryInbox Inbox,
         StubDeviceAuthorizationClient Authorization,
-        RecordingEventPublisher Publisher,
         FixedTimeProvider Clock,
         TelemetryIngestionService Service);
 
     private static Fixture Create(params string[] authorizedDevices)
     {
-        var store = new InMemoryTelemetryStore();
+        var inbox = new InMemoryTelemetryInbox();
         var authorization = new StubDeviceAuthorizationClient(authorizedDevices);
-        var publisher = new RecordingEventPublisher();
         var clock = new FixedTimeProvider(Now);
-        var service = new TelemetryIngestionService(
-            store,
-            authorization,
-            publisher,
-            clock,
-            NullLogger<TelemetryIngestionService>.Instance);
-
-        return new Fixture(store, authorization, publisher, clock, service);
+        var service = new TelemetryIngestionService(inbox, authorization, clock);
+        return new Fixture(inbox, authorization, clock, service);
     }
 
     private static TelemetryEvent Event(
@@ -46,7 +37,7 @@ public class TelemetryIngestionServiceTests
             new Dictionary<string, double> { ["voltage"] = 220.4 });
 
     [Fact]
-    public async Task Ingest_AuthorizedEvent_IsStoredAndAnnounced()
+    public async Task Ingest_AuthorizedEvent_IsQueuedForProcessing()
     {
         var fixture = Create("meter-001");
 
@@ -55,10 +46,7 @@ public class TelemetryIngestionServiceTests
         Assert.Equal(IngestionOutcome.Accepted, result.Outcome);
         Assert.NotNull(result.Reading);
         Assert.Equal(TelemetryFreshness.Current, result.Reading!.Freshness);
-        Assert.Single(fixture.Store.All);
-        Assert.Single(fixture.Publisher.Published);
-        Assert.Equal("evt-0001", fixture.Publisher.Published[0].EventId);
-        Assert.Equal(3, fixture.Publisher.Published[0].AssociationVersion);
+        Assert.Single(fixture.Inbox.Readings);
         Assert.Equal(3, fixture.Authorization.LastAssociationVersion);
     }
 
@@ -83,8 +71,7 @@ public class TelemetryIngestionServiceTests
         var result = await fixture.Service.IngestAsync(Event());
 
         Assert.Equal(IngestionOutcome.Duplicate, result.Outcome);
-        Assert.Single(fixture.Store.All);
-        Assert.Single(fixture.Publisher.Published);
+        Assert.Single(fixture.Inbox.Readings);
     }
 
     [Fact]
@@ -96,8 +83,7 @@ public class TelemetryIngestionServiceTests
 
         Assert.Equal(IngestionOutcome.Unauthorized, result.Outcome);
         Assert.Equal("device_unknown", result.Error);
-        Assert.Empty(fixture.Store.All);
-        Assert.Empty(fixture.Publisher.Published);
+        Assert.Empty(fixture.Inbox.Readings);
     }
 
     [Fact]
@@ -110,7 +96,7 @@ public class TelemetryIngestionServiceTests
 
         Assert.Equal(IngestionOutcome.InvalidTimestamp, result.Outcome);
         Assert.Equal(0, fixture.Authorization.Calls);
-        Assert.Empty(fixture.Store.All);
+        Assert.Empty(fixture.Inbox.Readings);
     }
 
     [Fact]
@@ -131,32 +117,30 @@ public class TelemetryIngestionServiceTests
         var result = await fixture.Service.IngestAsync(Event(deviceId: "bad device id"));
 
         Assert.Equal(IngestionOutcome.InvalidPayload, result.Outcome);
-        Assert.Empty(fixture.Store.All);
+        Assert.Empty(fixture.Inbox.Readings);
     }
 
     [Fact]
     public async Task Ingest_StoreOutage_ReturnsStoreUnavailable()
     {
         var fixture = Create("meter-001");
-        fixture.Store.FailNextSave = true;
+        fixture.Inbox.Full = true;
 
         var result = await fixture.Service.IngestAsync(Event());
 
         Assert.Equal(IngestionOutcome.StoreUnavailable, result.Outcome);
-        Assert.Empty(fixture.Store.All);
-        Assert.Empty(fixture.Publisher.Published);
+        Assert.Empty(fixture.Inbox.Readings);
     }
 
     [Fact]
-    public async Task Ingest_AlertingUnreachable_StillAcceptsTheReading()
+    public async Task Ingest_ReusedIdentifierWithDifferentSequence_IsRejected()
     {
         var fixture = Create("meter-001");
-        fixture.Publisher.Fail = true;
+        await fixture.Service.IngestAsync(Event());
 
-        var result = await fixture.Service.IngestAsync(Event());
+        var result = await fixture.Service.IngestAsync(Event() with { SequenceNumber = 2 });
 
-        // The reading is durable; the local outbox retries the event later.
-        Assert.Equal(IngestionOutcome.Accepted, result.Outcome);
-        Assert.Single(fixture.Store.All);
+        Assert.Equal(IngestionOutcome.Conflict, result.Outcome);
+        Assert.Single(fixture.Inbox.Readings);
     }
 }

@@ -1,4 +1,5 @@
 using Grpc.AspNetCore;
+using Npgsql;
 using Microsoft.OpenApi;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Smartgn.Telemetry.Application;
@@ -47,6 +48,7 @@ var mqttSettings = new MqttSettings
     ClientId = Resolve("Mqtt:ClientId", "MQTT_CLIENT_ID", "smartgn-telemetry"),
     Username = ResolveOptional("Mqtt:Username", "MQTT_USERNAME"),
     Password = ResolveOptional("Mqtt:Password", "MQTT_PASSWORD"),
+    SessionExpirySeconds = (uint)PositiveSetting("Mqtt:SessionExpirySeconds", "MQTT_SESSION_EXPIRY_SECONDS", 86400),
     Topic = Resolve("Mqtt:Topic", "MQTT_TOPIC", "smartgn/devices/+/telemetry"),
 };
 
@@ -116,8 +118,24 @@ builder.Services.AddSingleton<ITelemetryEventPublisher>(services =>
         services.GetRequiredService<CircuitBreaker>(),
         services.GetRequiredService<ILogger<AlertingEventPublisher>>()));
 
-builder.Services.AddSingleton(_ =>
-    new TelemetryEventBuffer(TelemetryRules.EventBufferCapacity, TelemetryRules.EventBufferMaxAge));
+int PositiveSetting(string key, string environment, int fallback)
+{
+    var value = Resolve(key, environment, fallback.ToString());
+    return int.TryParse(value, out var number) && number > 0
+        ? number
+        : throw new InvalidOperationException($"Invalid positive integer setting: {key}.");
+}
+
+builder.Services.AddSingleton(new DurableTelemetrySettings(
+    PositiveSetting("Processing:Capacity", "TELEMETRY_PENDING_CAPACITY", 4_000_000),
+    PositiveSetting("Processing:MaxAttempts", "TELEMETRY_MAX_ATTEMPTS", 160),
+    PositiveSetting("Processing:InfluxWorkers", "TELEMETRY_INFLUX_WORKERS", 4),
+    PositiveSetting("Processing:AlertingWorkers", "TELEMETRY_ALERTING_WORKERS", 8)));
+builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(
+    ResolveOptional("ConnectionStrings:Telemetry", "TELEMETRY_DB")
+    ?? throw new InvalidOperationException("Configure TELEMETRY_DB with a Telemetry-owned PostgreSQL database.")));
+builder.Services.AddSingleton<PostgresTelemetryInbox>();
+builder.Services.AddSingleton<ITelemetryInbox>(services => services.GetRequiredService<PostgresTelemetryInbox>());
 
 builder.Services.AddSingleton<TelemetryIngestionService>();
 builder.Services.AddSingleton<AppTelemetryQueryService>();
@@ -173,6 +191,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+await app.Services.GetRequiredService<PostgresTelemetryInbox>().InitializeAsync();
 
 // Keep the same Swagger URLs as the Spring Boot services.
 app.Use(async (context, next) =>
@@ -200,16 +219,19 @@ app.UseSwaggerUI(options =>
 app.MapGet("/health", () => Results.Text("UP", "text/plain"))
     .ExcludeFromDescription();
 
-app.MapGet("/ready", async (ITelemetryStore store, MqttConnectionManager connection, CancellationToken cancellationToken) =>
+app.MapGet("/ready", async (ITelemetryStore store, MqttConnectionManager connection, PostgresTelemetryInbox inbox, CancellationToken cancellationToken) =>
 {
     var influxUp = await store.IsHealthyAsync(cancellationToken);
+    var inboxUp = await inbox.IsHealthyAsync(cancellationToken);
+    var ready = influxUp && connection.IsConnected && inboxUp;
     var payload = new
     {
-        status = influxUp ? "UP" : "DOWN",
+        status = ready ? "UP" : "DOWN",
+        inbox = inboxUp ? "UP" : "DOWN",
         influx = influxUp ? "UP" : "DOWN",
         mqtt = connection.IsConnected ? "UP" : "DOWN",
     };
-    return influxUp
+    return ready
         ? Results.Ok(payload)
         : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
 })

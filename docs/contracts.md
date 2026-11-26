@@ -4,7 +4,7 @@ Three surfaces: the inbound MQTT payload, the private gRPC read contract and the
 
 ## Inbound: MQTT telemetry payload
 
-Topic `smartgn/devices/{deviceId}/telemetry`, MQTT 5, QoS 1. The topic device must equal the payload device; mismatches are rejected.
+Topic `smartgn/devices/{deviceId}/telemetry`, MQTT 5, QoS 1. The topic device must equal the payload device. Telemetry manually acknowledges accepted events after its PostgreSQL inbox commits and audits mismatched device identifiers.
 
 ```json
 {
@@ -42,7 +42,7 @@ Stable rejection codes (logs and tests): `payload_required`, `invalid_json`, `sc
 
 ## Outbound: Alerting event sink
 
-`POST {ALERTING_EVENTS_SINK_URL}` with an Alerting `TelemetryEventResource` JSON body (camelCase): `deviceId`, `eventId`, `propertyId`, `supplyPointId`, `accountId`, `measuredAt`, `receivedAt`, and available `consumptionM3`, `pressureKpa`, `gasPresence` and `valveOpen` metrics. The account and property identifiers come from the confirmed versioned association ledger. The shared `INTERNAL_SERVICE_TOKEN` is sent as a bearer credential. The default path is `/internal/v1/telemetry-events`. Delivery retries are bounded to 360 pending events in memory with 60 minutes of retention; a process restart clears pending events.
+`POST {ALERTING_EVENTS_SINK_URL}` with an Alerting `TelemetryEventResource` JSON body (camelCase): `deviceId`, `eventId`, `propertyId`, `supplyPointId`, `accountId`, `measuredAt`, `receivedAt`, and available `consumptionM3`, `pressureKpa`, `gasPresence` and `valveOpen` metrics. The account and property identifiers come from the confirmed versioned association ledger. The shared `INTERNAL_SERVICE_TOKEN` is sent as a bearer credential. The default path is `/internal/v1/telemetry-events`. A durable PostgreSQL outbox delivers the event after the InfluxDB write. The receiver deduplicates by device and event.
 
 ## Inbound private HTTP contracts
 

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -35,22 +36,28 @@ public sealed class AlertingEventPublisher(
 
         try
         {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TelemetryRules.RequestTimeout);
+
             var association = await associations.FindAsync(
                 telemetryEvent.DeviceId,
                 telemetryEvent.AssociationVersion,
-                cancellationToken);
+                timeout.Token);
             if (association is null)
             {
                 throw new InvalidOperationException("telemetry_association_unavailable");
             }
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TelemetryRules.RequestTimeout);
-
             var json = JsonSerializer.Serialize(
                 ToAlertingEvent(telemetryEvent, association), SerializerOptions);
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var response = await httpClient.PostAsync(sinkUrl, content, timeout.Token);
+            using var request = new HttpRequestMessage(HttpMethod.Post, sinkUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+            var correlationKey = Encoding.UTF8.GetBytes($"{telemetryEvent.DeviceId}/{telemetryEvent.EventId}");
+            var correlationId = new Guid(SHA256.HashData(correlationKey).AsSpan(0, 16));
+            request.Headers.Add("X-Correlation-Id", correlationId.ToString());
+            using var response = await httpClient.SendAsync(request, timeout.Token);
             response.EnsureSuccessStatusCode();
 
             circuit.RecordSuccess();
@@ -61,7 +68,7 @@ public sealed class AlertingEventPublisher(
             logger.LogWarning("TelemetryProcessed publish timed out towards {SinkUrl}", sinkUrl);
             throw new TimeoutException("alerting_publish_timeout");
         }
-        catch (HttpRequestException)
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             circuit.RecordFailure();
             logger.LogWarning("TelemetryProcessed publish failed towards {SinkUrl}", sinkUrl);
